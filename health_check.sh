@@ -16,15 +16,23 @@ echo
 echo "[MEMORY]"
 free -h
 
+memory_usage=$(free | awk '/Mem:/ {printf "%.0f", $3/$2 * 100}')
+memory_threshold=80
+
+if [ "$memory_usage" -ge "$memory_threshold" ]; then
+    echo "WARNING: Memory usage is ${memory_usage}%"
+else
+    echo "OK: Memory usage is ${memory_usage}%"
+fi
 echo
 echo "[DISK USAGE]"
 df -h /
 
 
 disk_usage=$(df -P / | awk 'NR==2 {print $5}' | tr -d '%')
-threshold=80
+disk_threshold=80
 
-if [ "$disk_usage" -ge "$threshold" ]; then
+if [ "$disk_usage" -ge "$disk_threshold" ]; then
     echo "WARNING: Disk usage is ${disk_usage}%"
 else
     echo "OK: Disk usage is ${disk_usage}%"
