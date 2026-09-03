@@ -4,9 +4,28 @@ readonly DISK_WARNING="${DISK_WARNING:-80}"
 readonly DISK_CRITICAL="${DISK_CRITICAL:-90}"
 readonly MEMORY_WARNING="${MEMORY_WARNING:-80}"
 readonly MEMORY_CRITICAL="${MEMORY_CRITICAL:-90}"
+readonly VERSION="0.2.0"
 
 warning_count=0
 critical_count=0
+
+show_help() {
+    cat <<EOF
+Usage: ${0##*/} [OPTION]
+
+AI-assisted Linux system health monitoring tool.
+
+Options:
+  -h, --help       Show this help message
+  -v, --version    Show the program version
+
+Exit codes:
+  0    System healthy
+  1    Warning detected
+  2    Critical condition detected
+  64   Invalid command-line option
+EOF
+}
 
 print_header() {
     echo "=================================="
@@ -85,13 +104,30 @@ show_summary() {
     fi
 }
 
-main() {
-    print_header
-    show_system_info
-    check_memory
-    check_disk
-    show_system_load
-    show_summary
+    main() {
+    case "${1:-}" in
+        -h|--help)
+            show_help
+            return 0
+            ;;
+        -v|--version)
+            echo "${0##*/} ${VERSION}"
+            return 0
+            ;;
+        "")
+            print_header
+            show_system_info
+            check_memory
+            check_disk
+            show_system_load
+            show_summary
+            ;;
+        *)
+            echo "ERROR: Unknown option: $1" >&2
+            echo "Try '${0##*/} --help' for usage information." >&2
+            return 64
+            ;;
+    esac
 }
 
 main "$@"
