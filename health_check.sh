@@ -4,13 +4,15 @@ readonly DISK_WARNING="${DISK_WARNING:-80}"
 readonly DISK_CRITICAL="${DISK_CRITICAL:-90}"
 readonly MEMORY_WARNING="${MEMORY_WARNING:-80}"
 readonly MEMORY_CRITICAL="${MEMORY_CRITICAL:-90}"
-readonly VERSION="0.4.0"
+readonly VERSION="0.5.0"
+readonly OPENAI_API_URL="https://api.openai.com/v1/responses"
+readonly DEFAULT_OPENAI_MODEL="gpt-5.6-luna"
 
 warning_count=0
 critical_count=0
 
 show_help() {
-    cat <<EOF
+    cat <<'EOF'
 Usage: ${0##*/} [OPTION]
 
 AI-assisted Linux system health monitoring tool.
@@ -20,12 +22,19 @@ Options:
   -v, --version    Show the program version
       --json       Display results in JSON format
       --save       Save JSON results to a timestamped file
+      --analyze    Analyze system health using the OpenAI API
 Exit codes:
   0    System healthy
   1    Warning detected
   2    Critical condition detected
   64   Invalid command-line option
   73   Report file could not be created
+  69   Required service unavailable
+  70   Invalid or empty API response
+  78   Missing API configuration
+Environment:
+  OPENAI_API_KEY      Required when using --analyze
+  OPENAI_MODEL        Optional model override
 EOF
 }
 
@@ -179,6 +188,101 @@ show_summary() {
     fi
 }
 
+show_api_key_setup() {
+    cat >&2 <<'EOF'
+To configure an OpenAI API key for the current terminal session:
+
+  1. Create a key at:
+     https://platform.openai.com/api-keys
+
+  2. Run:
+     read -rsp "OpenAI API key: " OPENAI_API_KEY
+     export OPENAI_API_KEY
+     echo
+
+The key remains outside the script and is not saved in this repository.
+EOF
+}
+
+validate_ai_requirements() {
+    local command_name
+
+    for command_name in curl jq; do
+        if ! command -v "$command_name" >/dev/null 2>&1; then
+            echo "ERROR: Required command not found: $command_name" >&2
+            return 69
+        fi
+    done
+
+    if [[ -z "${OPENAI_API_KEY:-}" ]]; then
+        echo "ERROR: OPENAI_API_KEY is not configured" >&2
+	echo >&2
+	show_api_key_setup
+	return 78
+fi
+}
+
+analyze_with_ai() {
+    local model="${OPENAI_MODEL:-$DEFAULT_OPENAI_MODEL}"
+    local health_json
+    local health_exit
+    local request_body
+    local response
+    local analysis
+
+    validate_ai_requirements || return $?
+
+    if health_json=$(show_json); then
+        health_exit=0
+    else
+        health_exit=$?
+    fi
+
+    request_body=$(jq -n \
+        --arg model "$model" \
+        --arg health_json "$health_json" \
+        '{
+            model: $model,
+            instructions: "You are a Linux system administrator. Analyze the supplied system health report. Explain the current state, identify risks, and give concise, safe recommendations. Do not recommend destructive commands.",
+            input: ("Analyze this Linux health report:\n" + $health_json)
+        }')
+
+    if ! response=$(curl -sS "$OPENAI_API_URL" \
+        -H "Content-Type: application/json" \
+        -H "Authorization: Bearer $OPENAI_API_KEY" \
+        -d "$request_body"); then
+        echo "ERROR: Could not connect to the OpenAI API" >&2
+        return 69
+    fi
+
+    if ! jq -e . >/dev/null 2>&1 <<< "$response"; then
+        echo "ERROR: The API returned invalid JSON" >&2
+        return 70
+    fi
+
+    if jq -e '.error != null' >/dev/null 2>&1 <<< "$response"; then
+        jq -r '"ERROR: OpenAI API: \(.error.message)"' \
+            <<< "$response" >&2
+        return 69
+    fi
+
+    analysis=$(jq -r '
+        [
+            .output[]?.content[]?
+            | select(.type == "output_text")
+            | .text
+        ] | join("\n")
+    ' <<< "$response")
+
+    if [[ -z "$analysis" ]]; then
+        echo "ERROR: The API returned no analysis" >&2
+        return 70
+    fi
+
+    printf '%s\n' "$analysis"
+    return "$health_exit"
+}
+
 save_json_report() {
     local report_dir="${REPORT_DIR:-reports}"
     local filename_timestamp
@@ -219,6 +323,10 @@ save_json_report() {
             ;;
         --save)
             save_json_report
+            return $?
+	    ;;
+        --analyze)
+            analyze_with_ai
             return $?
 	    ;;
         "")
