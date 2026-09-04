@@ -12,7 +12,7 @@ warning_count=0
 critical_count=0
 
 show_help() {
-    cat <<'EOF'
+    cat <<EOF
 Usage: ${0##*/} [OPTION]
 
 AI-assisted Linux system health monitoring tool.
