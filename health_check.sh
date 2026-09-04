@@ -4,7 +4,7 @@ readonly DISK_WARNING="${DISK_WARNING:-80}"
 readonly DISK_CRITICAL="${DISK_CRITICAL:-90}"
 readonly MEMORY_WARNING="${MEMORY_WARNING:-80}"
 readonly MEMORY_CRITICAL="${MEMORY_CRITICAL:-90}"
-readonly VERSION="0.3.0"
+readonly VERSION="0.4.0"
 
 warning_count=0
 critical_count=0
@@ -19,11 +19,13 @@ Options:
   -h, --help       Show this help message
   -v, --version    Show the program version
       --json       Display results in JSON format
+      --save       Save JSON results to a timestamped file
 Exit codes:
   0    System healthy
   1    Warning detected
   2    Critical condition detected
   64   Invalid command-line option
+  73   Report file could not be created
 EOF
 }
 
@@ -177,6 +179,30 @@ show_summary() {
     fi
 }
 
+save_json_report() {
+    local report_dir="${REPORT_DIR:-reports}"
+    local filename_timestamp
+    local report_file
+    local exit_code
+
+    filename_timestamp=$(date +'%Y%m%d_%H%M%S')
+    report_file="${report_dir}/health_${filename_timestamp}.json"
+
+    if ! mkdir -p "$report_dir"; then
+        echo "ERROR: Could not create report directory: $report_dir" >&2
+        return 73
+    fi
+
+    if show_json > "$report_file"; then
+        exit_code=0
+    else
+        exit_code=$?
+    fi
+
+    echo "Report saved to: $report_file"
+    return "$exit_code"
+}
+
     main() {
     case "${1:-}" in
         -h|--help)
@@ -191,6 +217,10 @@ show_summary() {
             show_json
             return $?
             ;;
+        --save)
+            save_json_report
+            return $?
+	    ;;
         "")
             print_header
             show_system_info
